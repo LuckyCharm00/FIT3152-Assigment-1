@@ -1,0 +1,427 @@
+---
+title: "Assignment 1"
+author: "Ariel Chandra"
+student id: "29081386"
+---
+
+```{r}
+# SETTING UP THE DATAFRAME
+
+set.seed(29081386)
+data = read.csv("/Users/afi/Documents/SEM1_2022/FIT3152/Assignment_1/webforum.csv")
+data = data[sample(nrow(data), 20000), ]
+```
+
+```{r}
+data[data$AuthorID==107588, ]
+```
+
+```{r}
+# IMPORTS
+
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(cohorts)
+library(tidyverse)
+library(igraph)
+```
+
+```{r}
+# EXTRACTING MONTH AND YEAR FROM DATA SOURCE
+data$year = format(as.Date(data$Date), "%Y")
+data$month = format(as.Date(data$Date), "%m")
+
+# CUTTING TIME RANGE INTO TIME OF DAY
+data$Time = hm(data$Time)
+breaks = hour(hm("00:00", "6:00", "12:00", "18:00", "23:59"))
+labels = c("Night", "Morning", "Afternoon", "Evening")
+
+data$time_of_day = cut(x=hour(data$Time), breaks=breaks, labels=labels, include.lowest=TRUE)
+```
+
+```{r}
+# CHECKING
+head(data) %>% select(year, month, Time, time_of_day)
+```
+```{r}
+thread_interaction
+```
+
+```{r}
+# GROUP BY YEAR AND MONTH
+# HOW MANY INTERACTION IS HAPPENING WITHIN EACH MONTH OF EACH YEAR?
+require(dplyr)
+require(ggplot2)
+
+thread_interaction = data %>% group_by(year, month) %>% summarise(interaction_count=n())
+thread_interaction_plot = thread_interaction %>% ggplot(aes(x=1:nrow(thread_interaction), y=interaction_count, color=year)) + geom_line()
+print(thread_interaction_plot + labs(y="Interaction Count", x="Month") + ggtitle("Monthly Thread Interaction") + theme(plot.title=element_text(hjust=0.5)))
+```
+
+```{r}
+# HOW MANY NEW AUTHORS ARE JOINING THE INTERACTIONS EVERY MONTH OVER THE YEARS? (SIMILAR TO NEW CLIENT ACQUISITION)
+
+# Setting a seed for reproducibility.
+set.seed(10)
+
+# Setting what years we want allowed.
+validYears = 2002:2011
+
+# Generating a "fake" dataset for testing purposes.
+custDF = select(data, AuthorID, Date)
+custDF$OrderYear = format(as.Date(data$Date), "%Y")
+custDF$CustID = custDF$AuthorID
+
+# Initializing a new data frame to store the output values.
+newDF = data.frame(Year = validYears, NewCustomers = 0, RunningNewCustomerTotal = 0, NewCustomerRate = "")
+custTotal <- 0 # Initializing a variable to be used in the loop.
+firstIt <- 1 # Denotes the first iteration.
+
+for (year in validYears) { # For each uniqueYear in your data set (which I arbitarily defined before making the dataset)
+
+  # Getting the unique IDs of the current year and the unique IDs of all past years.
+  currentIDs <- unique(custDF[custDF$OrderYear == year, "CustID"])
+  pastIDs <- unique(custDF[custDF$OrderYear < year, "CustID"])
+
+  if (firstIt == 1) { pastIDs <- c(-1) } # Setting a condition for the first iteration.
+
+  newIDs <- currentIDs[!(currentIDs %in% pastIDs)] # Getting all IDs that have not been previously used.
+  numNewIDs <- length(newIDs) # Getting the number of new IDs.
+  custTotal <- custTotal + numNewIDs # Getting the running total.
+
+  # Adding the new data into the data frame.
+  newDF[newDF$Year == year, "NewCustomers"] <- numNewIDs
+  newDF[newDF$Year == year, "RunningNewCustomerTotal"] <- custTotal
+
+  # Getting the rate.
+  if (firstIt == 1) { 
+
+    NewCustRate = 0
+    firstIt = 2
+
+  } else { NewCustRate = (1 - (newDF[newDF$Year == (year - 1), "RunningNewCustomerTotal"] / custTotal)) * 100 }
+
+  # Inputting the new data. Format and round are just getting the decimals down.
+  newDF[newDF$Year == year, "NewCustomerRate"] = paste0(format(round(NewCustRate, 2)), "%") # paste0(round(NewCustRate, 2))
+  
+}
+
+newDF
+```
+```{r}
+label_new_customer_rate = newDF$NewCustomerRate
+new_customer_acquisition_rate = newDF %>% ggplot(aes(x=Year, y=RunningNewCustomerTotal)) + geom_line() + geom_label(label=label_new_customer_rate) 
+print(new_customer_acquisition_rate + labs(y="Running New Customer Total", x="Year") + ggtitle("YoY New Customer Acquisition Rate") + theme(plot.title=element_text(hjust=0.5)))
+```
+```{r}
+# CHECK THE DESCIPTIVE STATISTICS OF THESE LINGUISTIC FEATURES
+# With time of day
+linguistic_features_tod = data %>% select(WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture, time_of_day)
+
+col_names = names(linguistic_features_tod)
+par(mfrow=c(4,5))
+par(cex=0.7, mai=c(0.1,0.3,0.7,0.1))
+# Create loop vector for all the columns
+length_df = length(linguistic_features_tod)-1
+loop.vector = 1:length_df
+for (i in loop.vector){
+  x = linguistic_features_tod[,i]
+  col_name = col_names[i]
+  hist(x,
+       main=paste(col_name),
+       xlab="Scores",
+       xlim=c(0,100))
+}
+
+```
+
+```{r}
+# WHAT IS THE CHARACTERISTICS BETWEEN EACH LINGUISTIC VARIABLE AS A FEATURE OF TIME?
+
+linguistic_features_ym = data %>% select(WC,year,month,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+lf_ym_summary = linguistic_features_ym %>% group_by(year,month) %>% summarise_all("median") # More robust to outliers
+```
+
+```{r}
+# Reshape the data to accept ggplot plotting functionality
+lf_ggp = data.frame(month=1:nrow(lf_ym_summary),
+                    values=c(lf_ym_summary$WC, lf_ym_summary$Analytic, lf_ym_summary$Clout, lf_ym_summary$Authentic, lf_ym_summary$Tone, lf_ym_summary$ppron, lf_ym_summary$i, lf_ym_summary$we, lf_ym_summary$you,
+                             lf_ym_summary$shehe, lf_ym_summary$they, lf_ym_summary$posemo, lf_ym_summary$negemo, lf_ym_summary$anx, lf_ym_summary$anger, lf_ym_summary$sad, lf_ym_summary$focuspast,
+                             lf_ym_summary$focuspresent, lf_ym_summary$focusfuture),
+                    group=c(rep("WC", nrow(lf_ym_summary)), rep("Analytic", nrow(lf_ym_summary)),rep("Clout", nrow(lf_ym_summary)),
+                            rep("Authentic", nrow(lf_ym_summary)),rep("Tone", nrow(lf_ym_summary)),
+                            rep("ppron", nrow(lf_ym_summary)),rep("i", nrow(lf_ym_summary)),
+                            rep("we", nrow(lf_ym_summary)),rep("you", nrow(lf_ym_summary)),
+                            rep("shehe", nrow(lf_ym_summary)),rep("they", nrow(lf_ym_summary)),
+                            rep("posemo", nrow(lf_ym_summary)),rep("negemo", nrow(lf_ym_summary)),
+                            rep("anx", nrow(lf_ym_summary)),rep("anger", nrow(lf_ym_summary)),
+                            rep("sad", nrow(lf_ym_summary)),rep("focuspast", nrow(lf_ym_summary)),
+                            rep("focuspresent", nrow(lf_ym_summary)),rep("focusfuture", nrow(lf_ym_summary))))
+```
+
+```{r}
+# VS Time
+linguistic_feature_plot = lf_ggp %>% ggplot(aes(x=month, y=values, col=group)) + geom_line() + coord_fixed(0.5)
+print(linguistic_feature_plot + ggtitle("Linguistic Feature Scores Over Time") + theme(plot.title=element_text(hjust=0.5)))
+```
+```{r}
+# Normalised data set
+
+min_max_norm <- function(x) {
+    (x - min(x)) / (max(x) - min(x))
+}
+
+linguistic_features = data %>% select(WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+df_lf_normalised = as.data.frame(lapply(linguistic_features_ym[1:length(colnames(linguistic_features_ym))], min_max_norm))
+```
+
+```{r}
+# WHAT IS THE RELATIONSHIP BETWEEN DIFFERENT LINGUISTIC FEATURES AND HOW DO THEY AFFECT EACH OTHER?
+# WE MIGHT BE ABLE TO PREDICT THE SCORE OF A LINGUISTIC FEATURE USING OTHER LINGUISTIC FEATURES E.G. PREDICTING HAPPINESS USING DATAPOINTS ON OPTIMISTISM AND SADNESS 
+
+# Let's check the correlation between different linguistic features
+linguistic_features = data %>% select(WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+
+cormat = round(cor(linguistic_features),3)
+
+# Get upper triangle correlation matrix
+get_upper_triangle = function(correlation_matrix){
+  correlation_matrix[lower.tri(correlation_matrix)]=NA
+  return(correlation_matrix)
+}
+
+# Re-ordering the correlation matrix
+reorder_matrix = function(correlation_matrix){
+  dd = as.dist((1-correlation_matrix)/2)
+  hc = hclust(dd)
+  correlation_matrix = correlation_matrix[hc$order, hc$order]
+}
+
+cormat = reorder_matrix(cormat)
+upper_tri = get_upper_triangle(cormat)
+require(reshape2)
+melted_cormat = melt(upper_tri, na.rm=TRUE)
+
+# Heatmap
+heatmap = ggplot(data = melted_cormat, aes(Var2, Var1, fill = value)) + geom_tile(color = "white") + scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                                                                                                                midpoint = 0, limit = c(-1,1), space = "Lab", 
+                                                                                                                name="Pearson\nCorrelation") + theme_minimal()+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                                                                                                                                                                 size = 12, hjust = 1)) + coord_fixed()
+
+heatmap = heatmap + 
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 1.5) + theme( axis.title.x = element_blank(),
+                                                                                  axis.title.y = element_blank(),
+                                                                                  panel.grid.major = element_blank(),
+                                                                                  panel.border = element_blank(),
+                                                                                  panel.background = element_blank(),
+                                                                                  axis.ticks = element_blank(),
+                                                                                  legend.justification = c(1, 0),
+                                                                                  legend.position = c(0.6, 0.7),
+                                                                                  legend.direction = "horizontal")+
+                                                                                  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                                                                                                title.position = "top", title.hjust = 0.5))
+
+heatmap
+```
+
+```{r}
+upper_tri
+```
+
+```{r}
+# COMPARE THE LINGUISTIC FEATURES OVER DIFFERENT PERIOD OF TIME
+lf_ts= data %>% select(ThreadID,year,month,WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+lf_ts_summary = lf_ts %>% group_by(ThreadID, year, month) %>% summarise_all("median")
+lf_ts_summary = lf_ts_summary[(lf_ts_summary$year=="2005" & lf_ts_summary$ThreadID=="92985"), ]
+df = lf_ts_summary
+df = data.frame(t(df))
+df = df[-3,]
+df
+
+```
+
+```{r}
+# ANALYSE SOCIAL NETWORKS ONLINE
+
+# Pre-processing data into graph format
+graphdata = data %>% select(ThreadID,AuthorID,year,month,WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+graphdata = graphdata[(graphdata$year=="2007" & graphdata$month=="12"), ]
+graphdata 
+```
+
+```{r}
+# How many unique ThreadID during this period?, There are 129 rows
+thread_id_count = graphdata %>% group_by(ThreadID) %>% summarise(count=n_distinct(ThreadID))
+
+# Storing unique thread_ids to sort through groups in this period of time
+thread_ids = thread_id_count$ThreadID
+
+from = c()
+to = c()
+
+total_author = 0
+
+# Algorithm to take the combination of unique interaction between one person to another
+for (thread_id in thread_ids){
+  # Sorting one by one based on thread_id
+  graph_thread_data = graphdata[(graphdata$ThreadID==thread_id), ]
+
+  # Making sure we only take unique values of author_id, we don't care about their frequency yet
+  author_ids = graph_thread_data$AuthorID %>% unique()
+  total_author = total_author + author_ids %>% n_distinct()
+  
+  # Iterate through the author_id list and pick the 1st person as "from"
+  # and the rest as "to", since it will create a bi-directional edges between everyone.
+  author_ids_1st = author_ids[1]
+  author_ids_rest = author_ids[2:length(author_ids)]
+  
+  # Temporary object to store the list while iterating
+  from_thread_ids = c()
+  to_thread_ids = c()
+  
+  for (author_id in author_ids_rest){
+    from_thread_ids = c(from_thread_ids, author_ids_1st)
+    to_thread_ids = c(to_thread_ids, author_id)
+  
+  # After this, put the values into permanent object 
+  from = c(from, from_thread_ids)
+  to = c(to, to_thread_ids)
+  }
+}
+
+links = data.frame(from, to)
+
+# Handling edge cases on graph
+# Node connecting to itself, Duplicate pair, NA, and -1 values
+links = links %>% filter(!(from==to))
+links = unique(links[c("from", "to")])
+links = na.omit(links)
+links = links %>% filter(!(from==-1)) %>% filter(!(to==-1))
+links$weight = 1
+```
+
+```{r}
+length(from)
+length(to)
+total_author
+```
+
+```{r}
+links
+```
+```{r}
+# INITIALISING THE GRAPH OBJECT
+g = graph.data.frame(links, directed=FALSE)
+g
+```
+```{r}
+# Vertices & vertices count
+authors = V(g)
+authors
+vcount(g)
+```
+```{r}
+E(g)
+ecount(g)
+```
+```{r}
+is.simple(g)
+```
+```{r}
+# Diameter, Average Path Length, Clique Size:
+diameter(g)
+average.path.length(g)
+table(sapply(cliques(g),length))
+```
+```{r}
+# Density and Clustering Coefficient
+graph.density(g)
+transitivity(g)
+```
+```{r}
+# Adjacency Matrix
+get.adjacency(g)
+```
+```{r}
+# Degree of Distribution
+hist(degree(g), breaks=10, col="grey")
+```
+```{r}
+# Degree, Betweenness and Closeness Centrality
+degree(g)
+betweenness(g)
+format(closeness(g), digits=2)
+```
+```{r}
+# Eigenvector Centrality
+# First create the eigenvector and then format the output
+e = evcent(g)
+format(e$vector, digits=2)
+```
+
+```{r}
+# Basic Plot
+dev.new(width=5,height=4,noRStudioGD = TRUE)
+plot(g, vertex.color="red")
+```
+
+```{r}
+authors
+```
+```{r}
+the_rest = c(92041,107588,44077,116475,136472,54960,118148,103775,137806,128515,134220,93243,79334,115092,128384,117632,128517,136505,118472,111416 ,111062 ,136662 ,114314 ,92647 , 51741,  84866 , 91951  ,97793, 
+ 137598, 43573 , 90602 , 8078,   5123 ,  61230,  106296 ,38226,  84423 , 129440,137593 ,137618, 104430 ,33502,  92245 , 29575 , 48929  ,106836 ,68568  ,111 ,   99876  ,106230 ,74180 , 133810 ,95961  ,114276, 137261, 132767 ,83344 ,
+ 47686  ,123723, 119646 ,32249  ,47875 , 62910 , 127866 ,108387 ,119434 ,44157,  83287 , 60882 , 130042, 129530 ,6025  , 5103 ,  110)
+most_important = c(83488)
+
+linguistic_status = function(x, data){
+  is_most_important = FALSE
+  if (length(x)>1){
+    is_most_important = TRUE
+  }
+  
+  # Most important
+  if (is_most_important){
+    graphdata = data %>% select(AuthorID,WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+    graphdata = graphdata[(graphdata$AuthorID==x), ] %>% group_by(AuthorID)
+    return(graphdata)
+    } 
+  else{
+    graphdata = data %>% select(AuthorID,WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+    graphdata = graphdata %>% filter(AuthorID==x)
+    return(graphdata)
+  }
+}
+
+graphdata = data %>% select(AuthorID,WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+best_data = graphdata[(graphdata$AuthorID==most_important), ] %>% group_by("AuthorID") %>% summarise_all("median")
+
+graphdata = data %>% select(AuthorID,WC,Analytic,Clout,Authentic,Tone,ppron,i,we,you,shehe,they,posemo,negemo,anx,anger,sad,focuspast,focuspresent,focusfuture)
+rest_data = graphdata[graphdata$AuthorID%in%the_rest, ] %>% summarise_all("median")
+
+best_vs_rest = merge(best_data, rest_data, all=TRUE)
+best_vs_rest = head(data.frame(t(best_vs_rest))[-1, ], 19)
+names(best_vs_rest)[names(best_vs_rest) == "X1"] = "Most_Important"
+names(best_vs_rest)[names(best_vs_rest) == "X2"] = "The_Rest"
+best_vs_rest=transform(best_vs_rest, Most_Important=as.numeric(Most_Important))
+best_vs_rest=transform(best_vs_rest, The_Rest=as.numeric(The_Rest))
+best_vs_rest$linguistic_features = rownames(best_vs_rest)
+best_vs_rest
+
+```
+```{r}
+# Barplot
+dfm = melt(best_vs_rest[,c('linguistic_features','Most_Important','The_Rest')],id.vars = 1)
+ggplot(dfm,aes(x = linguistic_features,y = value)) + 
+    geom_bar(aes(fill = variable),stat = "identity",position = "dodge") + 
+    scale_y_log10() + geom_text(aes(label=value), vjust=1.6, color="black", size=1.7) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+```{r}
+write.csv(best_vs_rest,"lol.csv", row.names = FALSE)
+```
+
+
